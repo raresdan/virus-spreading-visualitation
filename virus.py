@@ -50,9 +50,14 @@ class Virus:
                        "death": {i: {"thetas": [], "rs": []} for i in range(self.death_fast, 365)}}
         self.exposed_before = 0
         self.exposed_after = 1
-        self.thetas = 0
-        self.rs = 0
+        self.thetas = []
+        self.rs = []
         self.plot = 0
+        self.number_new_infected = 0
+        self.new_infected_indices = []
+        self.mild_indices = []
+        self.severe_indices = []
+        self.death_indices = []
 
         self.initial_population()
 
@@ -69,3 +74,101 @@ class Virus:
         self.axes.scatter(self.thetas[0], self.rs[0], s=5, color=RED)
         self.mild[self.mild_fast]["thetas"].append(self.thetas[0])
         self.mild[self.mild_fast]["rs"].append(self.rs[0])
+
+    def spread_virus(self, i):
+        self.exposed_before = self.exposed_after
+        if self.day % self.serial_interval == 0 and self.exposed_before < 3000:
+            self.number_new_infected = round(self.r0 * self.total_number_infected)
+            self.exposed_after += round(self.number_new_infected * 1.1)
+            if self.exposed_after > 3000:
+                self.number_new_infected = round((3000 - self.exposed_before) * 0.9)
+                self.exposed_after = 3000
+            self.number_currently_infected += self.number_new_infected
+            self.total_number_infected += self.number_new_infected
+            self.new_infected_indices = list(
+                np.random.choice(range(self.exposed_before, self.exposed_after), self.number_new_infected,
+                                 replace=False)
+            )
+            thetas = [self.thetas[i] for i in self.new_infected_indices]
+            rs = [self.rs[i] for i in self.new_infected_indices]
+            self.assign_symptoms()
+        self.day += 1
+        self.update_status()
+        self.update_text()
+
+    def assign_symptoms(self):
+        number_mild = round(self.percent_mild * self.number_new_infected)
+        number_severe = round(self.percent_severe * self.number_new_infected)
+
+        # choose a random subset of newly infected patients to have mild symptoms
+        self.mild_indices = np.random.choice(
+            self.new_infected_indices, number_mild, replace=False
+        )
+
+        # assign the rest of the patients severe symptoms, either resulting in recovery or death
+        remaining_indices = [
+            i for i in self.new_infected_indices if i not in self.mild_indices
+        ]
+        percent_severe_recovery = 1 - (self.fatality_rate / self.percent_severe)
+        number_severe_recovery = round(percent_severe_recovery * number_severe)
+        self.severe_indices = []
+        self.death_indices = []
+        if remaining_indices:
+            self.severe_indices = np.random.choice(
+                remaining_indices, number_severe_recovery, replace=False
+            )
+            self.death_indices = [
+                i for i in remaining_indices if i not in self.severe_indices
+            ]
+
+        # assign recovery/death day
+        low = self.day + self.mild_fast
+        high = self.day + self.mild_slow
+        for mild in self.mild_indices:
+            recovery_day = np.random.randint(low, high)
+            mild_theta = self.thetas[mild]
+            mild_r = self.rs[mild]
+            self.mild[recovery_day]["thetas"].append(mild_theta)
+            self.mild[recovery_day]["rs"].append(mild_r)
+        low = self.day + self.severe_fast
+        high = self.day + self.severe_slow
+        for recovery in self.severe_indices:
+            recovery_day = np.random.randint(low, high)
+            recovery_theta = self.thetas[recovery]
+            recovery_r = self.rs[recovery]
+            self.severe["recovery"][recovery_day]["thetas"].append(recovery_theta)
+            self.severe["recovery"][recovery_day]["rs"].append(recovery_r)
+        low = self.day + self.death_fast
+        high = self.day + self.death_slow
+        for death in self.death_indices:
+            death_day = np.random.randint(low, high)
+            death_theta = self.thetas[death]
+            death_r = self.rs[death]
+            self.severe["death"][death_day]["thetas"].append(death_theta)
+            self.severe["death"][death_day]["rs"].append(death_r)
+
+    def update_status(self):
+        if self.day >= self.mild_fast:
+            mild_thetas = self.mild[self.day]["thetas"]
+            mild_rs = self.mild[self.day]["rs"]
+            self.axes.scatter(mild_thetas, mild_rs, s=5, color=GREEN)
+            self.number_recovered += len(mild_thetas)
+            self.number_currently_infected -= len(mild_thetas)
+        if self.day >= self.severe_fast:
+            rec_thetas = self.severe["recovery"][self.day]["thetas"]
+            rec_rs = self.severe["recovery"][self.day]["rs"]
+            self.axes.scatter(rec_thetas, rec_rs, s=5, color=GREEN)
+            self.number_recovered += len(rec_thetas)
+            self.number_currently_infected -= len(rec_thetas)
+        if self.day >= self.death_fast:
+            death_thetas = self.severe["death"][self.day]["thetas"]
+            death_rs = self.severe["death"][self.day]["rs"]
+            self.axes.scatter(death_thetas, death_rs, s=5, color=BLACK)
+            self.number_deaths += len(death_thetas)
+            self.number_currently_infected -= len(death_thetas)
+
+    def update_text(self):
+        self.day_text.set_text("Day {}".format(self.day))
+        self.infected_text.set_text("Infected: {}".format(self.number_currently_infected))
+        self.death_text.set_text("\nDeaths: {}".format(self.number_deaths))
+        self.recovered_text.set_text("\n\nRecovered: {}".format(self.number_recovered))
