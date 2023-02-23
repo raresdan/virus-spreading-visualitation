@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plot
+import matplotlib.animation as animation
 import numpy as np
 
 from data import *
@@ -58,6 +59,8 @@ class Virus:
         self.mild_indices = []
         self.severe_indices = []
         self.death_indices = []
+        self.animate = None
+        self.animate2 = None
 
         self.initial_population()
 
@@ -91,10 +94,42 @@ class Virus:
             )
             thetas = [self.thetas[i] for i in self.new_infected_indices]
             rs = [self.rs[i] for i in self.new_infected_indices]
+            self.animate.event_source.stop()
+            if len(self.new_infected_indices) > 24:
+                size_list = round(len(self.new_infected_indices) / 24)
+                theta_chunks = list(self.chunks(thetas, size_list))
+                r_chunks = list(self.chunks(rs, size_list))
+                self.animate2 = animation.FuncAnimation(
+                    self.figure,
+                    self.one_by_one,
+                    interval=50,
+                    frames=len(theta_chunks),
+                    fargs=(theta_chunks, r_chunks, RED)
+                )
+            else:
+                self.animate2 = animation.FuncAnimation(
+                    self.figure,
+                    self.one_by_one,
+                    interval=50,
+                    frames=len(thetas),
+                    fargs=(thetas, rs, RED)
+                )
+
             self.assign_symptoms()
         self.day += 1
         self.update_status()
         self.update_text()
+
+    def one_by_one(self, i, thetas, rs, color):
+        self.axes.scatter(thetas[i], rs[i], s=5, color=color)
+        if i == len(thetas) - 1:
+            self.animate2.event_source.stop()
+            self.animate.event_source.start()
+
+    @staticmethod
+    def chunks(a_list, n):
+        for i in range(0, len(a_list), n):
+            yield a_list[i:i + n]
 
     def assign_symptoms(self):
         number_mild = round(self.percent_mild * self.number_new_infected)
@@ -172,3 +207,19 @@ class Virus:
         self.infected_text.set_text("Infected: {}".format(self.number_currently_infected))
         self.death_text.set_text("\nDeaths: {}".format(self.number_deaths))
         self.recovered_text.set_text("\n\nRecovered: {}".format(self.number_recovered))
+
+    def generator(self):
+        while self.number_deaths + self.number_recovered < self.total_number_infected:
+            yield
+
+    def animation(self):
+        self.animate = animation.FuncAnimation(
+            self.figure,
+            self.spread_virus,
+            frames=self.generator,
+            repeat=True,
+            cache_frame_data=False
+        )
+        return self.animate
+
+
